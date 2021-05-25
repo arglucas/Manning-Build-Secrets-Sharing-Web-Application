@@ -1,4 +1,4 @@
-package main
+package handlers
 
 import (
 	"encoding/json"
@@ -6,7 +6,34 @@ import (
 	"html"
 	"log"
 	"net/http"
+	"sync"
+	"time"
 )
+
+// DataStore Data Store for the storing of a mapping from ID to a SecretResponse.
+var DataStore map[string]SecretResponse
+var mutex *sync.Mutex
+
+type SecretRequest struct{
+	PlainText string `json:"plain_text"`
+}
+
+type SecretResponse struct{
+	Id string `json:"id,omitempty"`
+	Data string `json:"data,omitempty"`
+}
+
+// Middleware HTTP Handler, that logs the Request.
+func Logger(next http.Handler) http.Handler {
+	fn := func(w http.ResponseWriter, r *http.Request) {
+		t1 := time.Now()
+		next.ServeHTTP(w, r)
+		t2 := time.Now()
+		log.Printf("[%s] %q %v\n", r.Method, r.URL.String(), t2.Sub(t1))
+	}
+
+	return http.HandlerFunc(fn)
+}
 
 // Handler format to explain how to add a chained handler and how it looks conceptually.
 //
@@ -24,13 +51,16 @@ var HealthCheckResponse string
 var EmptySecretResponse string
 
 // General Initialization of handlers for default responses, errors etc.
-func initHandlers() {
+func init() {
 	// Prepare a health check response response.
 	HealthCheckResponse = "{\"Status\": \"OK\"}"
 
 	// Prepare a Empty SecretResponse for easier to read responses.
 	EmptySecretResponse = "{\"data\": \"\"}"
 
+	// Initialize the data store
+	DataStore = make(map[string]SecretResponse)
+	mutex = &sync.Mutex{}
 }
 
 // HealthCheckHandler provides a health checking route to confirm the server is working
