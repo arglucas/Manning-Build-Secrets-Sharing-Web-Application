@@ -47,17 +47,13 @@ func Logger(next http.Handler) http.Handler {
 //	fmt.Fprintf(w, "Hello, %q", html.EscapeString(r.URL.Path))
 //}
 
-var HealthCheckResponse string
-var EmptySecretResponse string
-
+const (
+	HealthCheckResponse = "ok" // Prepare a health check response response.
+	EmptyJsonResponse = "{}" // Empty JSON response
+	EmptySecretResponse = "{\"data\": \"\"}" // Prepare a Empty SecretResponse for easier to read responses.
+)
 // General Initialization of handlers for default responses, errors etc.
 func init() {
-	// Prepare a health check response response.
-	HealthCheckResponse = "{\"Status\": \"OK\"}"
-
-	// Prepare a Empty SecretResponse for easier to read responses.
-	EmptySecretResponse = "{\"data\": \"\"}"
-
 	// Initialize the data store
 	DataStore = make(map[string]SecretResponse)
 	mutex = &sync.Mutex{}
@@ -81,6 +77,13 @@ func (h SecretHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	//fmt.Fprintf(w, "test handler\n")
 	switch r.Method {
 	case "POST": // Store Secret
+		w.Header().Set("Content-Type", "application/json")
+
+		if r.Body == nil {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, EmptyJsonResponse)
+		}
+
 		var d SecretRequest
 		dec := json.NewDecoder(r.Body)
 		if err := dec.Decode(&d); err != nil {
@@ -88,9 +91,13 @@ func (h SecretHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		//fmt.Println(d.PlainText, md5hex(d.PlainText), reflect.TypeOf(d))
+		if d.PlainText == "" {
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, EmptyJsonResponse)
+			return
+		}
 		sr := SecretResponse{Id: md5hex(d.PlainText)}
 		// Send to stream before adding the data to the structure
-		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(sr)
 
 		// Add Data and store it
@@ -107,6 +114,7 @@ func (h SecretHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		mutex.Unlock()
 		if !exists { // if it doesn't exist return empty data
 			log.Printf("No value for Id: %s", id)
+			w.WriteHeader(http.StatusNotFound)
 			fmt.Fprintf(w, EmptySecretResponse)
 			return
 		}
@@ -118,5 +126,8 @@ func (h SecretHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		mutex.Lock()
 		delete(DataStore, id)
 		mutex.Unlock()
+	default:
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		fmt.Fprintf(w, "Method Not Allowed.")
 	}
 }
